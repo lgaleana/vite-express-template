@@ -1,0 +1,34 @@
+# Root workspace dependencies
+node_modules
+
+# Root-level environment variables
+.env
+.env.local
+
+# Root-level logs
+*.log
+npm-debug.log*
+
+# System files
+.DS_Store
+Thumbs.db
+
+# IDE workspace files
+.vscode/settings.json
+.vscode/launch.json
+.idea/
+
+# Package manager files
+package-lock.json.bak
+yarn.lock.bak
+
+# Build artifacts from workspaces
+dist/
+build/
+
+# Temporary files
+tmp/
+temp/
+
+# Coverage reports
+coverage/ 
