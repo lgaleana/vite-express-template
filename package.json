@@ -16,7 +16,7 @@
     "start": "npm run start --workspace=server",
     "type-check": "npm run type-check --workspace=server && npm run type-check --workspace=client",
     "lint": "npm run lint --workspace=client && npm run lint --workspace=server",
-    "install:all": "npm install && npm install --workspaces",
+    "install": "npm install && npm install --workspaces",
     "clean": "rm -rf node_modules client/node_modules server/node_modules client/dist server/dist"
   },
   "devDependencies": {
