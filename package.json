@@ -1,7 +1,10 @@
 {
   "name": "template-2",
   "private": true,
-  "workspaces": ["client", "server"],
+  "workspaces": [
+    "client",
+    "server"
+  ],
   "engines": {
     "node": ">=22.0.0",
     "npm": ">=10.0.0"
@@ -24,4 +27,4 @@
   "devDependencies": {
     "concurrently": "^8.2.2"
   }
-} 
+}
