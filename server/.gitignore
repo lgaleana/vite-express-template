@@ -49,4 +49,6 @@ coverage
 
 # Temporary folders
 tmp
-temp 
+temp
+
+tracing
