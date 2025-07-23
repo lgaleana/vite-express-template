@@ -1,8 +1,8 @@
 import dotenv from 'dotenv';
+dotenv.config();  // Load before evrything else
+
 import express from 'express';
 import cors from 'cors';
-
-dotenv.config();
 
 const app = express();
 const PORT = 3001;
