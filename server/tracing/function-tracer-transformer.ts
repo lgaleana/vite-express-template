@@ -283,7 +283,7 @@ export function createFunctionTracerTransformer(options: TransformerOptions = {}
             // Only instrument return statements at the top level (functionDepth === 0)
             if (ts.isReturnStatement(node) && functionDepth === 0) {
                 const exitLog = node.expression
-                    ? createLogStatement('EXIT', functionName, fileName, [node.expression], scope)
+                    ? createLogStatement('EXIT', functionName, fileName, [sanitizeExpression(node.expression)], scope)
                     : createLogStatement('EXIT', functionName, fileName, [], scope)
 
                 return ts.factory.createBlock([exitLog, node], false)
@@ -379,5 +379,27 @@ export function createFunctionTracerTransformer(options: TransformerOptions = {}
         )
 
         return ts.factory.createExpressionStatement(logCall)
+    }
+
+    function sanitizeExpression(expr: ts.Expression): ts.Expression {
+        // Check for await expressions and replace with a placeholder
+        if (ts.isAwaitExpression(expr)) {
+            return ts.factory.createStringLiteral('[await expression]')
+        }
+
+        // Check for function calls that might be async
+        if (ts.isCallExpression(expr)) {
+            // If it's a function call, we can't easily determine if it's async
+            // so we'll keep the call but sanitize its arguments
+            const sanitizedArgs = expr.arguments.map(arg => sanitizeExpression(arg))
+            return ts.factory.updateCallExpression(
+                expr,
+                expr.expression,
+                expr.typeArguments,
+                sanitizedArgs
+            )
+        }
+
+        return expr
     }
 } 
