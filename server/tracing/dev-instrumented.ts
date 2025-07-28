@@ -66,7 +66,7 @@ rebuild()
 // Watch for changes
 console.log('👀 Watching for changes in', SOURCE_DIR)
 const watcher = fs.watch(SOURCE_DIR, { recursive: true }, (eventType, filename) => {
-    if (filename && (filename.endsWith('.ts') || filename.endsWith('.tsx'))) {
+    if (filename && (filename.endsWith('.ts') || filename.endsWith('.tsx') || filename.endsWith('.env'))) {
         console.log(`📝 File changed: ${filename}`)
         rebuild()
     }
