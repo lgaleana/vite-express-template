@@ -11,6 +11,14 @@ const OUTPUT_DIR = 'dist/instrumented'
 const ENTRY_FILE = 'dist/instrumented/src/index.js'
 
 let serverProcess: ChildProcess | null = null
+let rebuildTimeout: ReturnType<typeof setTimeout> | null = null
+
+function clearOutputDirectory() {
+    if (fs.existsSync(OUTPUT_DIR)) {
+        console.log('🧹 Clearing output directory...')
+        fs.rmSync(OUTPUT_DIR, { recursive: true, force: true })
+    }
+}
 
 function startServer() {
     if (serverProcess) {
@@ -41,23 +49,31 @@ function startServer() {
 }
 
 function rebuild() {
-    console.log('🔄 Rebuilding instrumented server...')
-    dotenv.config();
-    console.log('Environment Variables:', process.env);
-
-    try {
-        buildWithInstrumentation({
-            sourceDir: SOURCE_DIR,
-            outputDir: OUTPUT_DIR,
-            enabled: true,
-            watch: false
-        })
-
-        // Small delay to ensure file is written
-        setTimeout(startServer, 500)
-    } catch (error) {
-        console.error('❌ Build failed:', error)
+    // Clear any pending rebuild
+    if (rebuildTimeout) {
+        clearTimeout(rebuildTimeout)
     }
+
+    rebuildTimeout = setTimeout(() => {
+        console.log('🔄 Rebuilding instrumented server...')
+        dotenv.config();
+
+        // Clear output directory to prevent stale files
+        clearOutputDirectory()
+
+        try {
+            buildWithInstrumentation({
+                sourceDir: SOURCE_DIR,
+                outputDir: OUTPUT_DIR,
+                enabled: true,
+                watch: false
+            })
+
+            startServer()
+        } catch (error) {
+            console.error('❌ Build failed:', error)
+        }
+    }, 300) // Keep debounce to prevent rapid rebuilds
 }
 
 // Initial build and start
