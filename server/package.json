@@ -35,6 +35,7 @@
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.1",
     "@types/node": "^22.13.11",
+    "chokidar": "^4.0.1",
     "tsx": "^4.19.2",
     "typescript": "^5.8.2"
   }

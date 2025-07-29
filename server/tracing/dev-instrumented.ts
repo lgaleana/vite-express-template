@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import { spawn, ChildProcess } from 'child_process'
 import { buildWithInstrumentation } from './build-instrumented.js'
 import * as fs from 'fs'
+import chokidar from 'chokidar'
 
 const SOURCE_DIR = '.'
 const OUTPUT_DIR = 'dist/instrumented'
@@ -51,26 +52,20 @@ function rebuild() {
 
     clearOutputDirectory()
 
-    if (rebuildTimeout) {
-        clearTimeout(rebuildTimeout)
+    try {
+        console.log('🔄 Rebuilding instrumented server...')
+        dotenv.config();
+
+        buildWithInstrumentation({
+            sourceDir: SOURCE_DIR,
+            outputDir: OUTPUT_DIR,
+            enabled: true
+        })
+
+        startServer()
+    } catch (error) {
+        console.error('❌ Build failed:', error)
     }
-
-    rebuildTimeout = setTimeout(() => {
-        try {
-            console.log('🔄 Rebuilding instrumented server...')
-            dotenv.config();
-
-            buildWithInstrumentation({
-                sourceDir: SOURCE_DIR,
-                outputDir: OUTPUT_DIR,
-                enabled: true
-            })
-
-            startServer()
-        } catch (error) {
-            console.error('❌ Build failed:', error)
-        }
-    }, 100) // Keep debounce to prevent rapid rebuilds
 }
 
 // Initial build and start
@@ -78,11 +73,28 @@ rebuild()
 
 // Watch for changes
 console.log('👀 Watching for changes in', SOURCE_DIR)
-const watcher = fs.watch(SOURCE_DIR, { recursive: true }, (eventType, filename) => {
-    if (filename && (filename.endsWith('.ts') || filename.endsWith('.tsx') || filename.endsWith('.env'))) {
-        console.log(`📝 File changed: ${filename}`)
+const watcher = chokidar.watch(SOURCE_DIR, {
+    ignored: [
+        '**/node_modules/**',
+        '**/dist/**',
+        '**/.git/**',
+        '**/tracing/**'
+    ],
+    awaitWriteFinish: {
+        stabilityThreshold: 100,
+        pollInterval: 50
+    }
+})
+
+watcher.on('all', (event, path) => {
+    if (path && (path.endsWith('.ts') || path.endsWith('.tsx') || path.endsWith('.env'))) {
+        console.log(`📝 File ${event}: ${path}`)
         rebuild()
     }
+})
+
+watcher.on('error', (error) => {
+    console.error('👀 Watcher error:', error)
 })
 
 // Cleanup on exit
