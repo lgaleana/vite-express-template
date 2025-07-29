@@ -55,13 +55,12 @@ function rebuild() {
     }
 
     rebuildTimeout = setTimeout(() => {
-        console.log('🔄 Rebuilding instrumented server...')
-        dotenv.config();
-
         // Clear output directory to prevent stale files
         clearOutputDirectory()
 
         try {
+            console.log('🔄 Rebuilding instrumented server...')
+            dotenv.config();
             buildWithInstrumentation({
                 sourceDir: SOURCE_DIR,
                 outputDir: OUTPUT_DIR,
@@ -82,7 +81,7 @@ rebuild()
 // Watch for changes
 console.log('👀 Watching for changes in', SOURCE_DIR)
 const watcher = fs.watch(SOURCE_DIR, { recursive: true }, (eventType, filename) => {
-    if (filename && (filename.endsWith('.ts') || filename.endsWith('.tsx') || filename.endsWith('.env'))) {
+    if (filename && !filename.startsWith('tracing') && !filename.startsWith('dist') && !filename.startsWith('node_modules')) {
         console.log(`📝 File changed: ${filename}`)
         rebuild()
     }
