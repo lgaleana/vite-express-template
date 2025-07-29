@@ -9,11 +9,10 @@ interface BuildOptions {
     sourceDir: string
     outputDir: string
     enabled?: boolean
-    watch?: boolean
 }
 
 export function buildWithInstrumentation(options: BuildOptions) {
-    const { sourceDir, outputDir, enabled = true, watch = false } = options
+    const { sourceDir, outputDir, enabled = true } = options
 
     // Read tsconfig.json
     const configPath = ts.findConfigFile('./', ts.sys.fileExists, 'tsconfig.json')
@@ -33,9 +32,9 @@ export function buildWithInstrumentation(options: BuildOptions) {
         ...compilerOptions,
         outDir: outputDir,
         rootDir: sourceDir,
-        module: ts.ModuleKind.ES2022,
+        module: ts.ModuleKind.NodeNext,
         target: ts.ScriptTarget.ES2022,
-        moduleResolution: ts.ModuleResolutionKind.Node16,
+        moduleResolution: ts.ModuleResolutionKind.NodeNext,
         allowImportingTsExtensions: false,
         noEmit: false,
         declaration: false,
@@ -58,31 +57,6 @@ export function buildWithInstrumentation(options: BuildOptions) {
     const emitResult = program.emit(undefined, undefined, undefined, false, {
         before: [functionTracer, importExtension],
     })
-
-    // Report diagnostics
-    const allDiagnostics = ts.getPreEmitDiagnostics(program).concat(emitResult.diagnostics)
-
-    allDiagnostics.forEach(diagnostic => {
-        if (diagnostic.file) {
-            const { line, character } = ts.getLineAndCharacterOfPosition(
-                diagnostic.file,
-                diagnostic.start!
-            )
-            const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n')
-            console.log(`${diagnostic.file.fileName} (${line + 1},${character + 1}): ${message}`)
-        } else {
-            console.log(ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'))
-        }
-    })
-
-    if (watch) {
-        console.log('👀 Watching for changes...')
-        // Simple file watcher
-        watchDirectory(sourceDir, () => {
-            console.log('🔄 Rebuilding...')
-            buildWithInstrumentation({ ...options, watch: false })
-        })
-    }
 
     // Ensure output directory exists and create package.json for ES modules
     if (!fs.existsSync(outputDir)) {
@@ -120,31 +94,3 @@ function getTypeScriptFiles(dir: string): string[] {
     traverse(dir)
     return files
 }
-
-function watchDirectory(dir: string, callback: () => void) {
-    const watcher = fs.watch(dir, { recursive: true }, (eventType, filename) => {
-        if (filename && (filename.endsWith('.ts') || filename.endsWith('.tsx'))) {
-            callback()
-        }
-    })
-
-    process.on('SIGINT', () => {
-        watcher.close()
-        process.exit(0)
-    })
-}
-
-// CLI usage
-if (import.meta.url === `file://${process.argv[1]}`) {
-    const args = process.argv.slice(2)
-    const watch = args.includes('--watch')
-    const sourceDir = args.find(arg => arg.startsWith('--source='))?.split('=')[1] || 'server'
-    const outputDir = args.find(arg => arg.startsWith('--output='))?.split('=')[1] || 'dist/instrumented'
-
-    buildWithInstrumentation({
-        sourceDir,
-        outputDir,
-        enabled: true,
-        watch
-    })
-} 

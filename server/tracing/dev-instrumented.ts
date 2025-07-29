@@ -64,8 +64,7 @@ function rebuild() {
             buildWithInstrumentation({
                 sourceDir: SOURCE_DIR,
                 outputDir: OUTPUT_DIR,
-                enabled: true,
-                watch: false
+                enabled: true
             })
 
             startServer()
@@ -81,7 +80,7 @@ rebuild()
 // Watch for changes
 console.log('👀 Watching for changes in', SOURCE_DIR)
 const watcher = fs.watch(SOURCE_DIR, { recursive: true }, (eventType, filename) => {
-    if (filename && !filename.startsWith('tracing') && !filename.startsWith('dist') && !filename.startsWith('node_modules')) {
+    if (filename && (filename.endsWith('.ts') || filename.endsWith('.tsx') || filename.endsWith('.env'))) {
         console.log(`📝 File changed: ${filename}`)
         rebuild()
     }
