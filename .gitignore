@@ -2,8 +2,7 @@
 node_modules
 
 # Root-level environment variables
-.env
-.env.local
+server/.env
 
 # Root-level logs
 *.log
