@@ -61,11 +61,11 @@ function rebuild() {
             outputDir: OUTPUT_DIR,
             enabled: true
         })
-
-        startServer()
     } catch (error) {
         console.error('❌ Build failed:', error)
     }
+
+    startServer()
 }
 
 // Initial build and start
@@ -75,11 +75,12 @@ rebuild()
 console.log('👀 Watching for changes in', SOURCE_DIR)
 const watcher = chokidar.watch(SOURCE_DIR, {
     ignored: [
-        '**/node_modules/**',
-        '**/dist/**',
-        '**/.git/**',
-        '**/tracing/**'
+        /(^|[\\/])node_modules([\\/]|$)/,   // any “node_modules” segment
+        /(^|[\\/])dist([\\/]|$)/,
+        /(^|[\\/])\.git([\\/]|$)/,
+        /(^|[\\/])tracing([\\/]|$)/         // ← root‑level or nested “tracing/”
     ],
+    ignoreInitial: true,
     awaitWriteFinish: {
         stabilityThreshold: 100,
         pollInterval: 50
