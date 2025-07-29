@@ -4,7 +4,6 @@ import dotenv from 'dotenv';
 import { spawn, ChildProcess } from 'child_process'
 import { buildWithInstrumentation } from './build-instrumented.js'
 import * as fs from 'fs'
-import * as path from 'path'
 
 const SOURCE_DIR = '.'
 const OUTPUT_DIR = 'dist/instrumented'
@@ -13,20 +12,8 @@ const ENTRY_FILE = 'dist/instrumented/src/index.js'
 let serverProcess: ChildProcess | null = null
 let rebuildTimeout: ReturnType<typeof setTimeout> | null = null
 
-function clearOutputDirectory() {
-    if (fs.existsSync(OUTPUT_DIR)) {
-        console.log('🧹 Clearing output directory...')
-        fs.rmSync(OUTPUT_DIR, { recursive: true, force: true })
-    }
-}
 
 function startServer() {
-    if (serverProcess) {
-        console.log('🛑 Stopping server...')
-        serverProcess.kill()
-        serverProcess = null
-    }
-
     if (fs.existsSync(ENTRY_FILE)) {
         console.log('🚀 Starting instrumented server...')
         serverProcess = spawn('node', [ENTRY_FILE], {
@@ -48,19 +35,31 @@ function startServer() {
     }
 }
 
+function clearOutputDirectory() {
+    if (fs.existsSync(OUTPUT_DIR)) {
+        console.log('🧹 Clearing output directory...')
+        fs.rmSync(OUTPUT_DIR, { recursive: true, force: true })
+    }
+}
+
 function rebuild() {
-    // Clear any pending rebuild
+    if (serverProcess) {
+        console.log('🛑 Stopping server...')
+        serverProcess.kill()
+        serverProcess = null
+    }
+
+    clearOutputDirectory()
+
     if (rebuildTimeout) {
         clearTimeout(rebuildTimeout)
     }
 
     rebuildTimeout = setTimeout(() => {
-        // Clear output directory to prevent stale files
-        clearOutputDirectory()
-
         try {
             console.log('🔄 Rebuilding instrumented server...')
             dotenv.config();
+
             buildWithInstrumentation({
                 sourceDir: SOURCE_DIR,
                 outputDir: OUTPUT_DIR,
@@ -71,7 +70,7 @@ function rebuild() {
         } catch (error) {
             console.error('❌ Build failed:', error)
         }
-    }, 300) // Keep debounce to prevent rapid rebuilds
+    }, 100) // Keep debounce to prevent rapid rebuilds
 }
 
 // Initial build and start
