@@ -1,8 +1,6 @@
 #!/usr/bin/env tsx
 import dotenv from 'dotenv';
 
-dotenv.config();
-
 import { spawn, ChildProcess } from 'child_process'
 import { buildWithInstrumentation } from './build-instrumented.js'
 import * as fs from 'fs'
@@ -44,6 +42,8 @@ function startServer() {
 
 function rebuild() {
     console.log('🔄 Rebuilding instrumented server...')
+    dotenv.config();
+    console.log('Environment Variables:', process.env);
 
     try {
         buildWithInstrumentation({
