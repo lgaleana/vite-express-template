@@ -58,8 +58,7 @@ function rebuild() {
 
         buildWithInstrumentation({
             sourceDir: SOURCE_DIR,
-            outputDir: OUTPUT_DIR,
-            enabled: true
+            outputDir: OUTPUT_DIR
         })
     } catch (error) {
         console.error('❌ Build failed:', error)

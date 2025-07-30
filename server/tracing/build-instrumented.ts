@@ -8,11 +8,10 @@ import { createImportExtensionTransformer } from './import-extension-transformer
 interface BuildOptions {
     sourceDir: string
     outputDir: string
-    enabled?: boolean
 }
 
 export function buildWithInstrumentation(options: BuildOptions) {
-    const { sourceDir, outputDir, enabled = true } = options
+    const { sourceDir, outputDir } = options
 
     // Read tsconfig.json
     const configPath = ts.findConfigFile('./', ts.sys.fileExists, 'tsconfig.json')
@@ -50,7 +49,7 @@ export function buildWithInstrumentation(options: BuildOptions) {
     })
 
     // Create transformers
-    const functionTracer = createFunctionTracerTransformer({ enabled })
+    const functionTracer = createFunctionTracerTransformer()
     const importExtension = createImportExtensionTransformer()
 
     // Emit with transformers
