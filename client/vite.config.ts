@@ -9,11 +9,11 @@ export default defineConfig({
     tailwindcss()
   ],
   server: {
-    port: 3002,
+    port: parseInt(process.env.VITE_FRONTEND_PORT),
     host: '0.0.0.0',
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        target: `http://localhost:${process.env.VITE_FRONTEND_PORT}`,
         changeOrigin: true
       }
     }
