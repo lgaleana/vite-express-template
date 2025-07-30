@@ -15,6 +15,7 @@ export default defineConfig(({ mode }) => {
       port: parseInt(env.VITE_FRONTEND_PORT),
       host: '0.0.0.0',
       strictPort: true,
+      allowedHosts: ['api.buildpanel.ai'],
       proxy: {
         '/api': {
           target: `${env.VITE_BACKEND_URL}`,
