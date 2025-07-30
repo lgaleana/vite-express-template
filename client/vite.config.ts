@@ -15,7 +15,9 @@ export default defineConfig(({ mode }) => {
       port: parseInt(env.VITE_FRONTEND_PORT),
       host: '0.0.0.0',
       strictPort: true,
-      allowedHosts: ['api.buildpanel.ai'],
+      // Allow dev server requests coming from any sub-domain of `app.buildpanel.ai`.
+      // The leading dot authorises the base domain itself and all nested sub-domains.
+      allowedHosts: ['.app.buildpanel.ai'],
       proxy: {
         '/api': {
           target: `${env.VITE_BACKEND_URL}`,
