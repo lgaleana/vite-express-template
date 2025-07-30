@@ -11,12 +11,12 @@ export default defineConfig({
   server: {
     port: parseInt(process.env.VITE_FRONTEND_PORT),
     host: '0.0.0.0',
+    strictPort: true,
     proxy: {
       '/api': {
-        target: `http://localhost:${process.env.VITE_FRONTEND_PORT}`,
+        target: `${process.env.VITE_BACKEND_URL}`,
         changeOrigin: true
       }
     }
   }
 })
- 
