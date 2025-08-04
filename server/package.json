@@ -26,12 +26,14 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@supabase/supabase-js": "^2.52.0",
+    "@supabase/supabase-js": "^2.53.0",
     "cors": "^2.8.5",
-    "dotenv": "^17.2.0",
-    "express": "^5.0.1"
+    "dotenv": "^17.2.1",
+    "express": "^5.1.0"
   },
   "devDependencies": {
+    "@babel/core": "^7.25.2",
+    "@babel/preset-typescript": "^7.24.7",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.1",
     "@types/node": "^22.13.11",
