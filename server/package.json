@@ -14,7 +14,7 @@
     "clean": "rm -rf dist",
     "type-check": "tsc --noEmit",
     "lint": "echo \"Add ESLint configuration if needed\"",
-    "dev:instrumented": "tsx tracing/dev-instrumented.ts 2>&1 | tee tracing/tracing.log"
+    "dev:instrumented": "tsx tracing/dev-babel.ts 2>&1 | tee tracing/tracing.log"
   },
   "keywords": [
     "express",
