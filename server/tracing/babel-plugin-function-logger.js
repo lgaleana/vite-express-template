@@ -1,4 +1,6 @@
 module.exports = function () {
+  const t = require('@babel/types');
+
   return {
     visitor: {
       Function(path) {
@@ -9,6 +11,13 @@ module.exports = function () {
 
         // Inject logging into function body
         injectLogging(path, functionName, fileName);
+      },
+
+      CallExpression(path) {
+        if (isExpressRouteCall(path.node)) {
+          const fileName = this.file.opts.filename?.split('/').pop() || 'unknown';
+          instrumentExpressRoute(path, fileName);
+        }
       }
     }
   };
@@ -35,7 +44,6 @@ module.exports = function () {
   }
 
   function injectLogging(path, functionName, fileName) {
-    const t = require('@babel/types');
 
     if (!path.node.body || path.node.body.type !== 'BlockStatement') {
       // Arrow functions with expression bodies: () => expr
@@ -56,10 +64,7 @@ module.exports = function () {
           t.templateElement({ raw: '' })
         ], [
           t.callExpression(t.identifier('safeToString'), [
-            t.callExpression(
-              t.memberExpression(t.identifier('Array'), t.identifier('from')),
-              [t.identifier('arguments')]
-            )
+            t.arrayExpression([t.spreadElement(t.identifier('arguments'))])
           ])
         ])]
       )
@@ -144,5 +149,110 @@ module.exports = function () {
       ];
       path.node.body = t.blockStatement(wrappedBody);
     }
+  }
+
+  // Express route detection and instrumentation
+  function isExpressRouteCall(node) {
+
+    if (!t.isMemberExpression(node.callee)) return false;
+
+    const methodName = t.isIdentifier(node.callee.property) ? node.callee.property.name : null;
+    const receiver = node.callee.object;
+
+    const EXPRESS_METHODS = ['get', 'post', 'put', 'delete'];
+
+    return !!(methodName && EXPRESS_METHODS.includes(methodName) &&
+      t.isIdentifier(receiver) &&
+      (receiver.name === 'app' || receiver.name === 'router'));
+  }
+
+  function extractRoutePath(node) {
+    const firstArg = node.arguments[0];
+
+    if (t.isStringLiteral(firstArg)) {
+      return firstArg.value;
+    }
+    return '/*';
+  }
+
+  function instrumentExpressRoute(path, fileName) {
+    const node = path.node;
+
+    const methodName = t.isIdentifier(node.callee.property) ? node.callee.property.name : null;
+    const routePath = extractRoutePath(node);
+
+    if (!methodName) return;
+
+    // Instrument handler functions in the arguments
+    const instrumentedArgs = node.arguments.map(arg => {
+      if (t.isFunctionExpression(arg) || t.isArrowFunctionExpression(arg)) {
+        return addEndpointLogging(arg, methodName.toUpperCase(), routePath, fileName);
+      }
+      return arg;
+    });
+
+    // Update the call expression with instrumented handlers
+    path.replaceWith(
+      t.callExpression(node.callee, instrumentedArgs)
+    );
+  }
+
+  function addEndpointLogging(handler, method, routePath, fileName) {
+
+    // Create endpoint log: ENTER|ENDPOINT|METHOD|PATH|FILENAME|req.body
+    const endpointLog = t.expressionStatement(
+      t.callExpression(
+        t.memberExpression(t.identifier('console'), t.identifier('log')),
+        [t.templateLiteral([
+          t.templateElement({ raw: `ENTER|ENDPOINT|${method}|${routePath}|${fileName}|` }),
+          t.templateElement({ raw: '' })
+        ], [
+          t.callExpression(t.identifier('safeToString'), [
+            t.memberExpression(t.identifier('req'), t.identifier('body'))
+          ])
+        ])]
+      )
+    );
+
+    if (t.isFunctionExpression(handler)) {
+      if (!handler.body || !t.isBlockStatement(handler.body)) return handler;
+
+      const newBody = t.blockStatement([
+        endpointLog,
+        ...handler.body.body
+      ]);
+
+      return t.functionExpression(
+        handler.id,
+        handler.params,
+        newBody,
+        handler.generator,
+        handler.async
+      );
+    } else if (t.isArrowFunctionExpression(handler)) {
+      let newBody;
+
+      if (t.isBlockStatement(handler.body)) {
+        newBody = t.blockStatement([
+          endpointLog,
+          ...handler.body.body
+        ]);
+      } else {
+        // Arrow function with expression body
+        const returnStatement = t.returnStatement(handler.body);
+        newBody = t.blockStatement([
+          endpointLog,
+          returnStatement
+        ]);
+      }
+
+      return t.arrowFunctionExpression(
+        handler.params,
+        newBody,
+        handler.async
+      );
+    }
+
+    return handler;
   }
 }; 
