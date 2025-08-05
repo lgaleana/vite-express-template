@@ -1,5 +1,6 @@
 # Root workspace dependencies
 node_modules
+package-lock.json
 
 # Root-level environment variables
 server/.env
