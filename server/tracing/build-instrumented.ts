@@ -2,8 +2,7 @@
 import * as ts from 'typescript'
 import * as fs from 'fs'
 import * as path from 'path'
-import { createFunctionTracerTransformer } from './function-tracer-transformer.js'
-import { createImportExtensionTransformer } from './import-extension-transformer.js'
+import { instrumentSourceCode } from './ts-morph-function-tracer.js'
 
 interface BuildOptions {
     sourceDir: string
@@ -43,19 +42,53 @@ export function buildWithInstrumentation(options: BuildOptions) {
     }
 
     // Get all TypeScript files
+    const tsFiles = getTypeScriptFiles(sourceDir)
+    
+    // Process each file with ts-morph instrumentation
+    for (const filePath of tsFiles) {
+        try {
+            // Read source code
+            const sourceCode = fs.readFileSync(filePath, 'utf-8')
+            
+            // Instrument with ts-morph tracer
+            const instrumentedCode = instrumentSourceCode(filePath, sourceCode)
+            
+            // Write instrumented TypeScript file to temp location
+            const relativePath = path.relative(sourceDir, filePath)
+            const tempPath = path.join(outputDir, 'temp', relativePath)
+            const tempDir = path.dirname(tempPath)
+            
+            if (!fs.existsSync(tempDir)) {
+                fs.mkdirSync(tempDir, { recursive: true })
+            }
+            
+            // Add .js extension imports for ESM compatibility
+            const esmCode = addJsExtensions(instrumentedCode)
+            fs.writeFileSync(tempPath, esmCode)
+            
+        } catch (error) {
+            console.error(`❌ Failed to instrument ${filePath}:`, error)
+            throw error
+        }
+    }
+
+    // Compile instrumented TypeScript files to JavaScript
+    const tempSourceDir = path.join(outputDir, 'temp')
+    const instrumentedTsFiles = getTypeScriptFiles(tempSourceDir)
+    
     const program = ts.createProgram({
-        rootNames: getTypeScriptFiles(sourceDir),
-        options: buildOptions,
+        rootNames: instrumentedTsFiles,
+        options: {
+            ...buildOptions,
+            rootDir: tempSourceDir,
+        }
     })
 
-    // Create transformers
-    const functionTracer = createFunctionTracerTransformer()
-    const importExtension = createImportExtensionTransformer()
+    // Emit JavaScript files
+    const emitResult = program.emit()
 
-    // Emit with transformers
-    const emitResult = program.emit(undefined, undefined, undefined, false, {
-        before: [functionTracer, importExtension],
-    })
+    // Clean up temp directory
+    fs.rmSync(tempSourceDir, { recursive: true, force: true })
 
     // Ensure output directory exists and create package.json for ES modules
     if (!fs.existsSync(outputDir)) {
@@ -92,4 +125,16 @@ function getTypeScriptFiles(dir: string): string[] {
 
     traverse(dir)
     return files
+}
+
+// Simple function to add .js extensions to imports for ESM compatibility
+function addJsExtensions(code: string): string {
+    // Replace relative imports without extensions with .js extensions
+    return code.replace(
+        /from\s+['"](\.\S*?)(?<!\.js)['"];/g,
+        "from '$1.js';"
+    ).replace(
+        /import\s+['"](\.\S*?)(?<!\.js)['"];/g,
+        "import '$1.js';"
+    )
 }
