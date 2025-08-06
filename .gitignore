@@ -3,6 +3,7 @@ node_modules
 package-lock.json
 
 # Root-level environment variables
+client/.env
 server/.env
 
 # Root-level logs
