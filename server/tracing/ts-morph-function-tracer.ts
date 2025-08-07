@@ -303,7 +303,7 @@ export class TSMorphFunctionTracer {
             console.log(\`EXIT|FUNCTION|${fileName}||${functionName}|\${safeToString(result)}\`);
             return result;
         } catch (error) {
-            console.log(\`ERROR|FUNCTION|${fileName}||${functionName}|\${safeToString(error)}\`);
+            console.error('\\n' + \`ERROR|FUNCTION|${fileName}||${functionName}|\${safeToString(error)}\`);
             throw error;
         }
     };
@@ -319,7 +319,7 @@ export class TSMorphFunctionTracer {
             console.log(\`EXIT|FUNCTION|${fileName}||${functionName}|\${safeToString(result)}\`);
             return result;
         } catch (error) {
-            console.log(\`ERROR|FUNCTION|${fileName}||${functionName}|\${safeToString(error)}\`);
+            console.error('\\n' + \`ERROR|FUNCTION|${fileName}||${functionName}|\${safeToString(error)}\`);
             throw error;
         }
     };
@@ -342,7 +342,7 @@ export class TSMorphFunctionTracer {
             console.log(\`EXIT|FUNCTION|${fileName}||${functionName}|\${safeToString(result)}\`);
             return result;
         } catch (error) {
-            console.log(\`ERROR|FUNCTION|${fileName}||${functionName}|\${safeToString(error)}\`);
+            console.error('\\n' + \`ERROR|FUNCTION|${fileName}||${functionName}|\${safeToString(error)}\`);
             throw error;
         }
     };
@@ -358,7 +358,7 @@ export class TSMorphFunctionTracer {
             console.log(\`EXIT|FUNCTION|${fileName}||${functionName}|\${safeToString(result)}\`);
             return result;
         } catch (error) {
-            console.log(\`ERROR|FUNCTION|${fileName}||${functionName}|\${safeToString(error)}\`);
+            console.error('\\n' + \`ERROR|FUNCTION|${fileName}||${functionName}|\${safeToString(error)}\`);
             throw error;
         }
     };
@@ -381,7 +381,7 @@ export class TSMorphFunctionTracer {
             yield* generator;
             console.log(\`EXIT|FUNCTION|${fileName}||${functionName}|[async generator completed]\`);
         } catch (error) {
-            console.log(\`ERROR|FUNCTION|${fileName}||${functionName}|\${safeToString(error)}\`);
+            console.error('\\n' + \`ERROR|FUNCTION|${fileName}||${functionName}|\${safeToString(error)}\`);
             throw error;
         }
     };
@@ -397,7 +397,7 @@ export class TSMorphFunctionTracer {
             yield* generator;
             console.log(\`EXIT|FUNCTION|${fileName}||${functionName}|[generator completed]\`);
         } catch (error) {
-            console.log(\`ERROR|FUNCTION|${fileName}||${functionName}|\${safeToString(error)}\`);
+            console.error('\\n' + \`ERROR|FUNCTION|${fileName}||${functionName}|\${safeToString(error)}\`);
             throw error;
         }
     };
