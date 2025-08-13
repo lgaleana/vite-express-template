@@ -1,9 +1,15 @@
-import { Project, SourceFile, Node, SyntaxKind } from 'ts-morph';
+import { Project, SourceFile, Node, SyntaxKind, ObjectLiteralExpression, PropertyAssignment, MethodDeclaration as ObjectMethodDeclaration } from 'ts-morph';
+import { instrumentExpressEndpointsAst } from './express-endpoint-instrumenter.js';
 import * as path from 'path';
 
 /**
- * Ultra-simple, bulletproof function tracer using ts-morph
- * Covers ALL named functions + Express endpoints with 0% chance of runtime breakage
+ * Function instrumentation for module-scope functions using ts-morph
+ * Goals:
+ * - 100% coverage of module-scope functions (exclude generators), including async
+ * - Logs inputs/outputs/errors
+ * - 0% chance of breaking at runtime (instrumented build only; no source edits)
+ * - Minimal, simple logs in format:
+ *   ACTION|FUNCTION|FILE|CLASS_OR_OBJECT|NAME|INPUT_OR_OUTPUT_OR_ERROR
  */
 
 interface FunctionInfo {
@@ -14,14 +20,7 @@ interface FunctionInfo {
     isStatic?: boolean;
 }
 
-interface EndpointInfo {
-    method: string;
-    path: string;
-    instrumentationCode: string;
-}
-
-// Express HTTP methods for endpoint detection
-const EXPRESS_METHODS = new Set(['get', 'post', 'put', 'delete', 'patch', 'head', 'options', 'all']);
+// (endpoint instrumentation moved to express-endpoint-instrumenter.ts)
 
 export class TSMorphFunctionTracer {
     private project: Project;
@@ -40,165 +39,38 @@ export class TSMorphFunctionTracer {
     }
 
     public instrumentFile(filePath: string, sourceCode: string): string {
-        // Create source file
-        const sourceFile = this.project.createSourceFile('temp.ts', sourceCode);
+        // Parse source file
+        const sourceFile = this.project.createSourceFile('temp.ts', sourceCode, { overwrite: true });
         const fileName = path.basename(filePath);
 
-        const functionsToWrap: FunctionInfo[] = [];
-        const endpointsToInstrument: EndpointInfo[] = [];
+        // 1) Module-scope variable functions and object-literal methods → initializer/body replacement (no rebinding)
+        this.instrumentTopLevelVariableFunctions(sourceFile, fileName);
+        this.instrumentTopLevelObjectLiteralMethods(sourceFile, fileName);
+        this.instrumentExportDefaultFunctionExpressions(sourceFile, fileName);
 
-        // Find ALL named functions comprehensively
+        // 2) Express endpoints (inline + named handlers at call sites)
+        instrumentExpressEndpointsAst(sourceFile, fileName);
+
+        // 3) Collect safe wrapper targets (top-level function declarations and class methods)
+        const functionsToWrap: FunctionInfo[] = [];
         this.findAllNamedFunctions(sourceFile, functionsToWrap, fileName);
 
-        // Find Express endpoints
-        this.findExpressEndpoints(sourceFile, endpointsToInstrument, fileName);
-
-        // Apply endpoint instrumentation to source code
-        let instrumentedCode = sourceCode;
-        instrumentedCode = this.applyEndpointInstrumentation(instrumentedCode, endpointsToInstrument);
-
-        // Generate wrapper code for functions
-        const wrapperCode = this.generateAllWrappers(functionsToWrap);
-
-        // Add safe serializer and wrappers at the end
+        // 4) Print modified source and append wrappers + safe serializer
+        const instrumentedBase = sourceFile.getFullText();
         const safeSerializerCode = this.generateSafeToString();
-        const finalCode = instrumentedCode + '\n\n' + safeSerializerCode + '\n\n' + wrapperCode;
-
-        return finalCode;
-    }
-
-    private findExpressEndpoints(sourceFile: SourceFile, endpoints: EndpointInfo[], fileName: string) {
-        sourceFile.forEachDescendant((node) => {
-            if (Node.isCallExpression(node)) {
-                const expression = node.getExpression();
-
-                // Check for app.get(), router.post(), etc.
-                if (Node.isPropertyAccessExpression(expression)) {
-                    const methodName = expression.getName();
-                    const object = expression.getExpression();
-
-                    if (EXPRESS_METHODS.has(methodName) &&
-                        Node.isIdentifier(object) &&
-                        (object.getText() === 'app' || object.getText() === 'router')) {
-
-                        // Extract path from first argument
-                        const args = node.getArguments();
-                        const pathArg = args[0];
-                        let routePath = '/*';
-
-                        if (pathArg && Node.isStringLiteral(pathArg)) {
-                            routePath = pathArg.getLiteralValue();
-                        }
-
-                        // Find handler functions in arguments and generate instrumentation
-                        for (let i = 1; i < args.length; i++) {
-                            const arg = args[i];
-                            if (Node.isFunctionExpression(arg) || Node.isArrowFunction(arg)) {
-                                const originalHandler = arg.getText();
-                                const instrumentedHandler = this.instrumentExpressHandler(
-                                    originalHandler,
-                                    methodName.toUpperCase(),
-                                    routePath,
-                                    fileName
-                                );
-
-                                endpoints.push({
-                                    method: methodName.toUpperCase(),
-                                    path: routePath,
-                                    instrumentationCode: `${originalHandler}|||${instrumentedHandler}`
-                                });
-                            }
-                            // Handle function references (e.g., app.get('/path', functionName))
-                            else if (Node.isIdentifier(arg)) {
-                                const functionName = arg.getText();
-                                const instrumentedHandler = this.instrumentFunctionReference(
-                                    functionName,
-                                    methodName.toUpperCase(),
-                                    routePath,
-                                    fileName
-                                );
-
-                                // Capture the entire endpoint definition for precise replacement
-                                const fullEndpointCall = node.getText();
-                                const instrumentedEndpointCall = fullEndpointCall.replace(functionName, instrumentedHandler);
-
-                                endpoints.push({
-                                    method: methodName.toUpperCase(),
-                                    path: routePath,
-                                    instrumentationCode: `${fullEndpointCall}|||${instrumentedEndpointCall}`
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-        });
-    }
-
-    private applyEndpointInstrumentation(sourceCode: string, endpoints: EndpointInfo[]): string {
-        let instrumentedCode = sourceCode;
-
-        // Replace original handler functions with instrumented versions
-        for (const endpoint of endpoints) {
-            const [original, instrumented] = endpoint.instrumentationCode.split('|||');
-            if (original && instrumented) {
-                // Use exact replacement to avoid breaking anything
-                instrumentedCode = instrumentedCode.replace(original, instrumented);
-            }
-        }
-
-        return instrumentedCode;
-    }
-
-    private instrumentExpressHandler(handlerCode: string, method: string, path: string, fileName: string): string {
-        // Parse the handler to add logging at the beginning
-        const logStatement = `console.log(\`ENTER|ENDPOINT|${method}|${path}|${fileName}|\${safeToString(req?.body || {})}\`);`;
-
-        // Simple pattern matching for common handler patterns
-
-        // Pattern 1: Function expression - function(req, res) { ... }
-        if (handlerCode.includes('function(') || handlerCode.includes('function (')) {
-            return handlerCode.replace(/(\{)/, `{
-    ${logStatement}`);
-        }
-
-        // Pattern 2: Arrow function with block - (req, res) => { ... }
-        else if (handlerCode.includes('=>') && handlerCode.includes('{')) {
-            return handlerCode.replace(/(\{)/, `{
-    ${logStatement}`);
-        }
-
-        // Pattern 3: Arrow function without block - (req, res) => expression
-        else if (handlerCode.includes('=>') && !handlerCode.includes('{')) {
-            // Convert to block form to add logging
-            const arrowIndex = handlerCode.indexOf('=>');
-            const beforeArrow = handlerCode.substring(0, arrowIndex + 2);
-            const afterArrow = handlerCode.substring(arrowIndex + 2).trim();
-
-            return `${beforeArrow} {
-    ${logStatement}
-    return ${afterArrow};
-}`;
-        }
-
-        // Fallback: return original if we can't parse it safely
-        return handlerCode;
-    }
-
-    private instrumentFunctionReference(functionName: string, method: string, path: string, fileName: string): string {
-        // Create a wrapper function that logs and then calls the original function
-        return `(req, res, next) => {
-    console.log(\`ENTER|ENDPOINT|${method}|${path}|${fileName}|\${safeToString(req?.body || {})}\`);
-    return ${functionName}(req, res);
-}`;
+        const wrapperCode = this.generateAllWrappers(functionsToWrap);
+        return instrumentedBase + '\n\n' + safeSerializerCode + '\n\n' + wrapperCode;
     }
 
     private findAllNamedFunctions(sourceFile: SourceFile, functions: FunctionInfo[], fileName: string) {
+        // Only wrap top-level function declarations and top-level class methods
+        const isTopLevel = (node: Node): boolean => node.getParent()?.getKind() === SyntaxKind.SourceFile;
         sourceFile.forEachDescendant((node) => {
             // 1. Regular function declarations
-            if (Node.isFunctionDeclaration(node)) {
+            if (Node.isFunctionDeclaration(node) && isTopLevel(node)) {
                 const name = node.getName();
-                if (name) {
+                // Skip generators if any
+                if (name && !node.isGenerator()) {
                     functions.push({
                         name,
                         isAsync: node.isAsync(),
@@ -211,7 +83,12 @@ export class TSMorphFunctionTracer {
             else if (Node.isMethodDeclaration(node)) {
                 const name = node.getName();
                 const className = this.getClassName(node);
-                if (name && className) {
+                // Only wrap methods of top-level classes
+                const classNode = node.getFirstAncestorByKind(SyntaxKind.ClassDeclaration);
+                const classIsTopLevel = classNode?.getParent()?.getKind() === SyntaxKind.SourceFile;
+                if (name && className && classIsTopLevel) {
+                    // Skip hard private methods (#name) which cannot be reassigned externally
+                    if (name.startsWith('#')) return;
                     const isStatic = node.hasModifier(SyntaxKind.StaticKeyword);
                     functions.push({
                         name,
@@ -222,58 +99,10 @@ export class TSMorphFunctionTracer {
                     });
                 }
             }
-
-            // 3. Arrow functions assigned to variables/constants
-            else if (Node.isVariableDeclaration(node)) {
-                const name = node.getName();
-                const initializer = node.getInitializer();
-                if (name && initializer && Node.isArrowFunction(initializer)) {
-                    functions.push({
-                        name,
-                        isAsync: initializer.isAsync(),
-                        wrapperCode: this.createStandaloneWrapper(name, initializer.isAsync(), fileName)
-                    });
-                }
-            }
-
-            // 4. Function expressions assigned to variables
-            else if (Node.isVariableDeclaration(node)) {
-                const name = node.getName();
-                const initializer = node.getInitializer();
-                if (name && initializer && Node.isFunctionExpression(initializer)) {
-                    functions.push({
-                        name,
-                        isAsync: initializer.isAsync(),
-                        wrapperCode: this.createStandaloneWrapper(name, initializer.isAsync(), fileName)
-                    });
-                }
-            }
-
-            // 5. Generator functions
-            else if (Node.isFunctionDeclaration(node) && node.isGenerator()) {
-                const name = node.getName();
-                if (name) {
-                    functions.push({
-                        name,
-                        isAsync: node.isAsync(),
-                        wrapperCode: this.createGeneratorWrapper(name, node.isAsync(), fileName)
-                    });
-                }
-            }
-
-            // 6. Object method shorthand - skip for now to maintain 0% runtime breakage
-
-            // 7. Exported functions
+            // 3. Exported default assigned function expression
             else if (Node.isExportAssignment(node)) {
-                const expression = node.getExpression();
-                if (Node.isFunctionExpression(expression)) {
-                    const name = expression.getName() || 'default';
-                    functions.push({
-                        name,
-                        isAsync: expression.isAsync(),
-                        wrapperCode: this.createStandaloneWrapper(name, expression.isAsync(), fileName)
-                    });
-                }
+                // Export default handled via expression replacement to avoid unsafe rebinding
+                return;
             }
         });
     }
@@ -291,119 +120,53 @@ export class TSMorphFunctionTracer {
 
     private createStandaloneWrapper(functionName: string, isAsync: boolean, fileName: string): string {
         const originalVar = `__original_${functionName}`;
-
-        if (isAsync) {
-            return `
-{
-    const ${originalVar} = ${functionName};
-    ${functionName} = async function(...args) {
-        console.log(\`ENTER|FUNCTION|${fileName}||${functionName}|\${safeToString(args)}\`);
-        try {
-            const result = await ${originalVar}.apply(this, args);
-            console.log(\`EXIT|FUNCTION|${fileName}||${functionName}|\${safeToString(result)}\`);
-            return result;
-        } catch (error) {
-            console.error('\\n' + \`ERROR|FUNCTION|${fileName}||${functionName}|\${safeToString(error)}\`);
-            throw error;
-        }
-    };
-}`;
-        } else {
-            return `
+        // Single wrapper that preserves async/sync by checking for thenable
+        return `
 {
     const ${originalVar} = ${functionName};
     ${functionName} = function(...args) {
         console.log(\`ENTER|FUNCTION|${fileName}||${functionName}|\${safeToString(args)}\`);
         try {
-            const result = ${originalVar}.apply(this, args);
-            console.log(\`EXIT|FUNCTION|${fileName}||${functionName}|\${safeToString(result)}\`);
-            return result;
+            const out = ${originalVar}.apply(this, args);
+            if (out && typeof out.then === 'function') {
+                return out.then(v => { console.log(\`EXIT|FUNCTION|${fileName}||${functionName}|\${safeToString(v)}\`); return v; })
+                          .catch(e => { console.error(\`ERROR|FUNCTION|${fileName}||${functionName}|\${safeToString(e)}\`); throw e; });
+            }
+            console.log(\`EXIT|FUNCTION|${fileName}||${functionName}|\${safeToString(out)}\`);
+            return out;
         } catch (error) {
-            console.error('\\n' + \`ERROR|FUNCTION|${fileName}||${functionName}|\${safeToString(error)}\`);
+            console.error(\`ERROR|FUNCTION|${fileName}||${functionName}|\${safeToString(error)}\`);
             throw error;
         }
     };
 }`;
-        }
     }
 
     private createClassMethodWrapper(functionName: string, isAsync: boolean, fileName: string, className: string, isStatic: boolean): string {
         const originalVar = `__original_${functionName}`;
         const accessor = isStatic ? `${className}.${functionName}` : `${className}.prototype.${functionName}`;
-
-        if (isAsync) {
-            return `
-{
-    const ${originalVar} = ${accessor};
-    ${accessor} = async function(...args) {
-        console.log(\`ENTER|FUNCTION|${fileName}||${functionName}|\${safeToString(args)}\`);
-        try {
-            const result = await ${originalVar}.apply(this, args);
-            console.log(\`EXIT|FUNCTION|${fileName}||${functionName}|\${safeToString(result)}\`);
-            return result;
-        } catch (error) {
-            console.error('\\n' + \`ERROR|FUNCTION|${fileName}||${functionName}|\${safeToString(error)}\`);
-            throw error;
-        }
-    };
-}`;
-        } else {
-            return `
+        return `
 {
     const ${originalVar} = ${accessor};
     ${accessor} = function(...args) {
-        console.log(\`ENTER|FUNCTION|${fileName}||${functionName}|\${safeToString(args)}\`);
+        console.log(\`ENTER|FUNCTION|${fileName}|${className}|${functionName}|\${safeToString(args)}\`);
         try {
-            const result = ${originalVar}.apply(this, args);
-            console.log(\`EXIT|FUNCTION|${fileName}||${functionName}|\${safeToString(result)}\`);
-            return result;
+            const out = ${originalVar}.apply(this, args);
+            if (out && typeof out.then === 'function') {
+                return out.then(v => { console.log(\`EXIT|FUNCTION|${fileName}|${className}|${functionName}|\${safeToString(v)}\`); return v; })
+                          .catch(e => { console.error(\`ERROR|FUNCTION|${fileName}|${className}|${functionName}|\${safeToString(e)}\`); throw e; });
+            }
+            console.log(\`EXIT|FUNCTION|${fileName}|${className}|${functionName}|\${safeToString(out)}\`);
+            return out;
         } catch (error) {
-            console.error('\\n' + \`ERROR|FUNCTION|${fileName}||${functionName}|\${safeToString(error)}\`);
+            console.error(\`ERROR|FUNCTION|${fileName}|${className}|${functionName}|\${safeToString(error)}\`);
             throw error;
         }
     };
 }`;
-        }
     }
 
-    private createGeneratorWrapper(functionName: string, isAsync: boolean, fileName: string): string {
-        // For generators, we wrap but don't interfere with the generator behavior
-        const originalVar = `__original_${functionName}`;
-
-        if (isAsync) {
-            return `
-{
-    const ${originalVar} = ${functionName};
-    ${functionName} = async function*(...args) {
-        console.log(\`ENTER|FUNCTION|${fileName}||${functionName}|\${safeToString(args)}\`);
-        try {
-            const generator = ${originalVar}.apply(this, args);
-            yield* generator;
-            console.log(\`EXIT|FUNCTION|${fileName}||${functionName}|[async generator completed]\`);
-        } catch (error) {
-            console.error('\\n' + \`ERROR|FUNCTION|${fileName}||${functionName}|\${safeToString(error)}\`);
-            throw error;
-        }
-    };
-}`;
-        } else {
-            return `
-{
-    const ${originalVar} = ${functionName};
-    ${functionName} = function*(...args) {
-        console.log(\`ENTER|FUNCTION|${fileName}||${functionName}|\${safeToString(args)}\`);
-        try {
-            const generator = ${originalVar}.apply(this, args);
-            yield* generator;
-            console.log(\`EXIT|FUNCTION|${fileName}||${functionName}|[generator completed]\`);
-        } catch (error) {
-            console.error('\\n' + \`ERROR|FUNCTION|${fileName}||${functionName}|\${safeToString(error)}\`);
-            throw error;
-        }
-    };
-}`;
-        }
-    }
+    // Generators are intentionally excluded per requirements
 
     private generateAllWrappers(functions: FunctionInfo[]): string {
         return functions.map(f => f.wrapperCode).join('\n');
@@ -427,6 +190,117 @@ function safeToString(value) {
         }
     }
 }`;
+    }
+
+    // --- New helpers for module-scope variable functions and object methods ---
+
+    private instrumentTopLevelVariableFunctions(sourceFile: SourceFile, fileName: string) {
+        const variableStatements = sourceFile.getVariableStatements();
+        for (const vs of variableStatements) {
+            const isTopLevel = vs.getParent()?.getKind() === SyntaxKind.SourceFile;
+            if (!isTopLevel) continue;
+            const kind = vs.getDeclarationKind(); // const/let/var
+            for (const decl of vs.getDeclarations()) {
+                const name = decl.getName();
+                const init = decl.getInitializer();
+                if (!init) continue;
+                if (Node.isFunctionExpression(init) || Node.isArrowFunction(init)) {
+                    // Replace initializer with a wrapped function expression (IIFE over original)
+                    const wrapped = this.buildInitializerWrapper(name, '', fileName, init.getText());
+                    decl.setInitializer(wrapped);
+                } else if (Node.isObjectLiteralExpression(init)) {
+                    // Object literal handled in separate method
+                    continue;
+                }
+            }
+        }
+    }
+
+    private instrumentExportDefaultFunctionExpressions(sourceFile: SourceFile, fileName: string) {
+        const exportAssignments = sourceFile.getExportAssignments();
+        for (const ex of exportAssignments) {
+            const expr = ex.getExpression();
+            if (!expr) continue;
+            if (Node.isFunctionExpression(expr) || Node.isArrowFunction(expr)) {
+                const wrapped = this.buildInitializerWrapper('default', '', fileName, expr.getText());
+                ex.setExpression(wrapped);
+            }
+        }
+    }
+
+    private instrumentTopLevelObjectLiteralMethods(sourceFile: SourceFile, fileName: string) {
+        const variableStatements = sourceFile.getVariableStatements();
+        for (const vs of variableStatements) {
+            const isTopLevel = vs.getParent()?.getKind() === SyntaxKind.SourceFile;
+            if (!isTopLevel) continue;
+            for (const decl of vs.getDeclarations()) {
+                const varName = decl.getName();
+                const init = decl.getInitializer();
+                if (!init || !Node.isObjectLiteralExpression(init)) continue;
+                this.wrapObjectLiteralProperties(init as ObjectLiteralExpression, varName, fileName);
+            }
+        }
+    }
+
+    private wrapObjectLiteralProperties(obj: ObjectLiteralExpression, objectName: string, fileName: string) {
+        for (const prop of obj.getProperties()) {
+            // Method shorthand: { foo(a){...} }
+            if (Node.isMethodDeclaration(prop as any)) {
+                const m = prop as unknown as ObjectMethodDeclaration;
+                const key = m.getName();
+                const originalText = m.getText();
+                // Build a property assignment with function expression wrapper using original method as IIFE
+                const asFunctionExpr = this.convertObjectMethodToFunctionExpression(originalText);
+                const wrappedInit = this.buildInitializerWrapper(key, objectName, fileName, asFunctionExpr);
+                m.replaceWithText(`${key}: ${wrappedInit}`);
+            }
+            // Property assignment with function value: { foo: function(){}, bar: ()=>{} }
+            else if (Node.isPropertyAssignment(prop)) {
+                const pa = prop as PropertyAssignment;
+                const nameNode = pa.getNameNode();
+                const key = nameNode.getText().replace(/['"`]/g, '');
+                const init = pa.getInitializer();
+                if (!init) continue;
+                if (Node.isFunctionExpression(init) || Node.isArrowFunction(init)) {
+                    const wrappedInit = this.buildInitializerWrapper(key, objectName, fileName, init.getText());
+                    pa.setInitializer(wrappedInit);
+                }
+            }
+        }
+    }
+
+    private convertObjectMethodToFunctionExpression(methodText: string): string {
+        // methodText like: "foo(a,b) { ... }" possibly with modifiers; convert to function(a,b){...}
+        // Simple heuristic: find first '(' as params start and '{' as body start
+        const nameEnd = methodText.indexOf('(');
+        const bodyStart = methodText.indexOf('{', nameEnd);
+        const params = methodText.slice(nameEnd, bodyStart).trim();
+        const body = methodText.slice(bodyStart).trim();
+        return `function ${params} ${body}`;
+    }
+
+    private buildInitializerWrapper(name: string, objectOrClass: string, fileName: string, originalInitializer: string): string {
+        // Wrap original initializer via IIFE to preserve original behavior and this/args
+        // Handles async/sync by thenable detection; does not change signature
+        const scopeField = objectOrClass ? objectOrClass : '';
+        const enter = `ENTER|FUNCTION|${fileName}|${scopeField}|${name}|`;
+        const exit = `EXIT|FUNCTION|${fileName}|${scopeField}|${name}|`;
+        const error = `ERROR|FUNCTION|${fileName}|${scopeField}|${name}|`;
+        return `((__orig) => function(...args){
+    console.log(\`${enter}\${safeToString(args)}\`);
+    try {
+        const out = __orig.apply(this, args);
+        if (out && typeof out.then === 'function') {
+            return out.then(v => { console.log(\`${exit}\${safeToString(v)}\`); return v; })
+                      .catch(e => { console.error(\`${error}\${safeToString(e)}\`); throw e; });
+        }
+        console.log(\`${exit}\${safeToString(out)}\`);
+        return out;
+    } catch (e) {
+        console.error(\`${error}\${safeToString(e)}\`);
+        throw e;
+    }
+})(${originalInitializer})`;
     }
 }
 

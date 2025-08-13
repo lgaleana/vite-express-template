@@ -6,12 +6,11 @@ import { buildWithInstrumentation } from './build-instrumented.js'
 import * as fs from 'fs'
 import chokidar from 'chokidar'
 
-const SOURCE_DIR = '.'
+const SOURCE_DIR = 'src'
 const OUTPUT_DIR = 'dist/instrumented'
-const ENTRY_FILE = 'dist/instrumented/src/index.js'
+const ENTRY_FILE = 'dist/instrumented/index.js'
 
 let serverProcess: ChildProcess | null = null
-let rebuildTimeout: ReturnType<typeof setTimeout> | null = null
 
 
 function startServer() {
@@ -72,7 +71,7 @@ rebuild()
 
 // Watch for changes
 console.log('👀 Watching for changes in', SOURCE_DIR)
-const watcher = chokidar.watch(SOURCE_DIR, {
+const watcher = chokidar.watch([SOURCE_DIR, '.env'], {
     ignored: [
         /(^|[\\/])node_modules([\\/]|$)/,   // any “node_modules” segment
         /(^|[\\/])dist([\\/]|$)/,
